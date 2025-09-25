@@ -99,6 +99,15 @@ def main():
             # Concatenate all dataframes
             final_df = pd.concat(all_dataframes, ignore_index=True)
 
+            # Standardize emails before deduplication
+            final_df['email'] = final_df['email'].astype(str).str.lower().str.strip()
+
+            # Also standardize secondary email if it exists
+            if 'secondary_email' in final_df.columns:
+                final_df['secondary_email'] = final_df['secondary_email'].astype(str).str.lower().str.strip()
+                # Replace 'nan' string with empty string for secondary emails
+                final_df['secondary_email'] = final_df['secondary_email'].replace('nan', '')
+
             # Remove duplicates based on email (primary identifier)
             initial_count = len(final_df)
             final_df = final_df.drop_duplicates(subset=['email'], keep='first')
