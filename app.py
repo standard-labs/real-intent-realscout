@@ -6,7 +6,7 @@ import pandas as pd
 COLUMN_MAPPINGS = {
     "first_name": "first_name",
     "last_name": "last_name",
-    "phone_1": "phone_name",
+    "phone_1": "phone_number",
     "email_1": "email",
     "email_2": "secondary_email",
     "address": "street_address",
