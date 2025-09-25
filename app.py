@@ -18,7 +18,8 @@ COLUMN_MAPPINGS = {
 
 def process_single_file(uploaded_file, tags=None):
     """Process a single CSV file and return the converted DataFrame."""
-    df = pd.read_csv(uploaded_file)
+    # Force all columns to be read as strings to preserve leading zeros and exact input
+    df = pd.read_csv(uploaded_file, dtype=str)
 
     # Check if required columns are in the dataframe
     missing_columns = [col for col in COLUMN_MAPPINGS.keys() if col not in df.columns]
@@ -29,9 +30,11 @@ def process_single_file(uploaded_file, tags=None):
     # Filter and rename columns
     df_filtered = df[list(COLUMN_MAPPINGS.keys())].rename(columns=COLUMN_MAPPINGS)
 
-    # Add insight as note if available
+    # Add insight as note if available (handle string NaNs)
     if 'insight' in df.columns:
-        df_filtered['note'] = df['insight'].apply(lambda x: f"{x}" if pd.notna(x) else "")
+        df_filtered['note'] = df['insight'].apply(
+            lambda x: str(x) if pd.notna(x) and str(x).lower() not in ['nan', 'none', ''] else ""
+        )
     else:
         df_filtered['note'] = ""
 
@@ -39,10 +42,10 @@ def process_single_file(uploaded_file, tags=None):
     df_filtered['source'] = 'realintent'
 
     # Add tags
-    if tags:
-        df_filtered['tags'] = tags
+    if tags and tags.strip():
+        df_filtered['tags'] = tags.strip()
     else:
-        df_filtered['tags'] = None
+        df_filtered['tags'] = ""
 
     return df_filtered, None
 
@@ -99,14 +102,24 @@ def main():
             # Concatenate all dataframes
             final_df = pd.concat(all_dataframes, ignore_index=True)
 
-            # Standardize emails before deduplication
-            final_df['email'] = final_df['email'].astype(str).str.lower().str.strip()
+            # Standardize emails before deduplication (handle string NaNs)
+            final_df['email'] = final_df['email'].apply(
+                lambda x: str(x).lower().strip() if pd.notna(x) and str(x).lower() not in ['nan', 'none', ''] else ""
+            )
 
             # Also standardize secondary email if it exists
             if 'secondary_email' in final_df.columns:
-                final_df['secondary_email'] = final_df['secondary_email'].astype(str).str.lower().str.strip()
-                # Replace 'nan' string with empty string for secondary emails
-                final_df['secondary_email'] = final_df['secondary_email'].replace('nan', '')
+                final_df['secondary_email'] = final_df['secondary_email'].apply(
+                    lambda x: str(x).lower().strip() if pd.notna(x) and str(x).lower() not in ['nan', 'none', ''] else ""
+                )
+
+            # Clean up other string fields that might have 'nan' values
+            string_fields = ['phone_number', 'street_address', 'city', 'state_abbrev', 'postal_code', 'first_name', 'last_name']
+            for field in string_fields:
+                if field in final_df.columns:
+                    final_df[field] = final_df[field].apply(
+                        lambda x: str(x).strip() if pd.notna(x) and str(x).lower() not in ['nan', 'none'] else ""
+                    )
 
             # Remove duplicates based on email (primary identifier)
             initial_count = len(final_df)
