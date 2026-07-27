@@ -1,3 +1,5 @@
+import re
+
 import streamlit as st
 import pandas as pd
 
@@ -14,6 +16,76 @@ COLUMN_MAPPINGS = {
     "state": "state_abbrev",
     "zip_code": "postal_code",
 }
+
+
+def normalize_string(value, lowercase=False):
+    """Return a clean string while treating missing-value markers as empty."""
+    if pd.isna(value):
+        return ""
+
+    normalized = str(value).strip()
+    if normalized.lower() in {"nan", "none"}:
+        return ""
+
+    return normalized.lower() if lowercase else normalized
+
+
+def normalize_phone_for_identity(value):
+    """Return a comparable US phone number without changing exported values."""
+    digits = re.sub(r"\D", "", normalize_string(value))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits if len(digits) >= 7 else ""
+
+
+def prepare_contacts(dataframe):
+    """Clean exported contact fields without changing the output schema."""
+    prepared = dataframe.copy()
+    prepared["email"] = prepared["email"].apply(
+        lambda value: normalize_string(value, lowercase=True)
+    )
+
+    if "secondary_email" in prepared.columns:
+        prepared["secondary_email"] = prepared["secondary_email"].apply(
+            lambda value: normalize_string(value, lowercase=True)
+        )
+
+    string_fields = [
+        "phone_number",
+        "street_address",
+        "city",
+        "state_abbrev",
+        "postal_code",
+        "first_name",
+        "last_name",
+    ]
+    for field in string_fields:
+        if field in prepared.columns:
+            prepared[field] = prepared[field].apply(normalize_string)
+
+    return prepared
+
+
+def deduplicate_contacts(dataframe):
+    """Deduplicate by primary email, falling back to phone when email is blank."""
+    identity_keys = []
+
+    for row_number, (_, row) in enumerate(dataframe.iterrows()):
+        email = normalize_string(row.get("email"), lowercase=True)
+        if email:
+            identity_keys.append(f"email:{email}")
+            continue
+
+        phone = normalize_phone_for_identity(row.get("phone_number"))
+        if phone:
+            identity_keys.append(f"phone:{phone}")
+        else:
+            identity_keys.append(f"row:{row_number}")
+
+    duplicate_mask = pd.Series(identity_keys, index=dataframe.index).duplicated(
+        keep="first"
+    )
+    return dataframe.loc[~duplicate_mask].reset_index(drop=True)
 
 
 def process_single_file(uploaded_file, tags=None):
@@ -101,29 +173,11 @@ def main():
         if all_dataframes:
             # Concatenate all dataframes
             final_df = pd.concat(all_dataframes, ignore_index=True)
+            final_df = prepare_contacts(final_df)
 
-            # Standardize emails before deduplication (handle string NaNs)
-            final_df['email'] = final_df['email'].apply(
-                lambda x: str(x).lower().strip() if pd.notna(x) and str(x).lower() not in ['nan', 'none', ''] else ""
-            )
-
-            # Also standardize secondary email if it exists
-            if 'secondary_email' in final_df.columns:
-                final_df['secondary_email'] = final_df['secondary_email'].apply(
-                    lambda x: str(x).lower().strip() if pd.notna(x) and str(x).lower() not in ['nan', 'none', ''] else ""
-                )
-
-            # Clean up other string fields that might have 'nan' values
-            string_fields = ['phone_number', 'street_address', 'city', 'state_abbrev', 'postal_code', 'first_name', 'last_name']
-            for field in string_fields:
-                if field in final_df.columns:
-                    final_df[field] = final_df[field].apply(
-                        lambda x: str(x).strip() if pd.notna(x) and str(x).lower() not in ['nan', 'none'] else ""
-                    )
-
-            # Remove duplicates based on email (primary identifier)
+            # Prefer primary email as the identity, then use phone for phone-only leads.
             initial_count = len(final_df)
-            final_df = final_df.drop_duplicates(subset=['email'], keep='first')
+            final_df = deduplicate_contacts(final_df)
             final_count = len(final_df)
             duplicates_removed = initial_count - final_count
 
@@ -133,7 +187,10 @@ def main():
             st.dataframe(summary_df, use_container_width=True)
 
             if duplicates_removed > 0:
-                st.warning(f"Removed {duplicates_removed} duplicate contacts based on email address")
+                st.warning(
+                    f"Removed {duplicates_removed} duplicate contacts based on "
+                    "email address or phone number"
+                )
 
             st.write(f"## Final Result: {final_count} unique contacts")
 
