@@ -4,6 +4,7 @@ import unittest
 import pandas as pd
 
 from app import (
+    compute_row_tags,
     deduplicate_contacts,
     normalize_phone_for_identity,
     prepare_contacts,
@@ -128,7 +129,62 @@ class ConverterTests(unittest.TestCase):
         )
         self.assertEqual(result.iloc[0]["phone_number"], "2094056699")
         self.assertEqual(result.iloc[0]["source"], "realintent")
-        self.assertEqual(result.iloc[0]["tags"], "weekly")
+        self.assertEqual(result.iloc[0]["tags"], "89448, weekly")
+
+    def test_compute_row_tags_tiers_and_zip(self):
+        row_tier_1 = pd.Series(
+            {
+                "zip_code": "34653",
+                "Pre-Movers": "x",
+                "Residential": "X",
+                "Mortgages": "x",
+            }
+        )
+        self.assertEqual(
+            compute_row_tags(row_tier_1), "34653, RealScout Tier 1"
+        )
+
+        row_tier_2 = pd.Series(
+            {
+                "zip_code": "34653.0",
+                "Residential": "x",
+                "Brokers And Agents": "x",
+            }
+        )
+        self.assertEqual(
+            compute_row_tags(row_tier_2), "34653, RealScout Tier 2"
+        )
+
+        row_tier_3 = pd.Series(
+            {
+                "zip_code": "926",
+                "Mortgages": "x",
+            }
+        )
+        self.assertEqual(
+            compute_row_tags(row_tier_3), "00926, RealScout Tier 3"
+        )
+
+        row_no_tier = pd.Series({"zip_code": "34653"})
+        self.assertEqual(compute_row_tags(row_no_tier), "34653")
+
+        row_with_manual = pd.Series({"zip_code": "34653", "Residential": "x"})
+        self.assertEqual(
+            compute_row_tags(row_with_manual, manual_tags="VIP"),
+            "34653, RealScout Tier 3, VIP",
+        )
+
+    def test_single_file_conversion_with_intent_tiers(self):
+        csv_file = io.StringIO(
+            "first_name,last_name,phone_1,email_1,email_2,address,city,state,"
+            "zip_code,insight,Pre-Movers,Residential,Mortgages\n"
+            "Jane,Doe,4155550100,,,123 Main St,Tampa,FL,33601,"
+            "Listing inquiry,x,x,x\n"
+        )
+
+        result, missing_columns = process_single_file(csv_file)
+        self.assertIsNone(missing_columns)
+        self.assertEqual(result.iloc[0]["tags"], "33601, RealScout Tier 1")
 
 
 if __name__ == "__main__":
