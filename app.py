@@ -17,6 +17,44 @@ COLUMN_MAPPINGS = {
     "zip_code": "postal_code",
 }
 
+INTENT_COLUMNS = [
+    "Pre-Movers",
+    "RE Educational Content",
+    "Residential",
+    "Divorce",
+    "Mortgages",
+    "Brokers And Agents",
+    "Sellers",
+]
+
+
+def compute_row_tags(row, manual_tags=None):
+    tags_list = []
+    zip_val = row.get("zip_code")
+    if pd.notna(zip_val):
+        formatted_zip = str(zip_val).split(".")[0].strip()
+        if formatted_zip.lower() not in {"nan", "none", ""}:
+            if len(formatted_zip) < 5:
+                formatted_zip = formatted_zip.zfill(5)
+            tags_list.append(formatted_zip)
+
+    x_count = sum(
+        1
+        for col in INTENT_COLUMNS
+        if col in row and str(row[col]).strip().lower() == "x"
+    )
+    if x_count >= 3:
+        tags_list.append("RealScout Tier 1")
+    elif x_count == 2:
+        tags_list.append("RealScout Tier 2")
+    elif x_count == 1:
+        tags_list.append("RealScout Tier 3")
+
+    if manual_tags and manual_tags.strip():
+        tags_list.append(manual_tags.strip())
+
+    return ", ".join(tags_list)
+
 
 def normalize_string(value, lowercase=False):
     """Return a clean string while treating missing-value markers as empty."""
@@ -114,10 +152,7 @@ def process_single_file(uploaded_file, tags=None):
     df_filtered['source'] = 'realintent'
 
     # Add tags
-    if tags and tags.strip():
-        df_filtered['tags'] = tags.strip()
-    else:
-        df_filtered['tags'] = ""
+    df_filtered["tags"] = df.apply(lambda row: compute_row_tags(row, tags), axis=1)
 
     return df_filtered, None
 
