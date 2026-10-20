@@ -18,6 +18,7 @@ COLUMN_MAPPINGS = {
 }
 
 INTENT_COLUMNS = [
+    "Real Estate Listings",
     "Pre-Movers",
     "RE Educational Content",
     "Residential",
