@@ -165,6 +165,13 @@ class ConverterTests(unittest.TestCase):
             compute_row_tags(row_tier_3), "00926, RealScout Tier 3"
         )
 
+        row_listings_only = pd.Series(
+            {"zip_code": "17362", "Real Estate Listings": "x"}
+        )
+        self.assertEqual(
+            compute_row_tags(row_listings_only), "17362, RealScout Tier 3"
+        )
+
         row_no_tier = pd.Series({"zip_code": "34653"})
         self.assertEqual(compute_row_tags(row_no_tier), "34653")
 
